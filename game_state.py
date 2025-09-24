@@ -79,40 +79,136 @@ class GameState:
         
         return None
     
-    def _dfs(self, board: Board, row: int, col: int, path: List[Tuple[int,int]], captured: Set[Tuple[int,int]], result_possible_moves: List[Move]):
-        any_capture = False
-        piece = board.tiles[row][col]
-        directions = self._get_directions(piece)
+    def _dfs(self, 
+             board: Board, 
+             row: int, col: int, 
+             path: List[Tuple[int,int]], 
+             captured: Set[Tuple[int,int]], 
+             result_possible_moves: List[Move]):
         
-        for dir_row,dir_col in directions:
-            row_1,col_1 = row + dir_row, col + dir_col
-            row_2,col_2 = row + 2*dir_row, col + 2*dir_col
-            
-            if not self.is_inside_board(row_2,col_2) or not self.is_inside_board(row_1,col_1):
-                continue
-            
-            target_piece = board.tiles[row_1][col_1]
-            landing = board.tiles[row_2][col_2]
-            
-            if not piece.is_set or piece.color is None:
-                continue
-            if not self._can_be_captured(row_1,col_1,captured,target_piece,landing,piece.color):
-                continue
-            
-            any_capture = True
-            new_board = copy.deepcopy(board)
-            new_board.tiles[row_2][col_2] = new_board.tiles[row][col]
-            new_board.tiles[row][col] = PlayerTileClaim()
-            new_board.tiles[row_1][col_1] = PlayerTileClaim()
-            new_captured = captured | {(row_1,col_1)}
-            self._dfs(new_board, row_2,col_2, path+[(row_2,col_2)], new_captured, result_possible_moves)
-                
-        if not any_capture:
+        piece = board.tiles[row][col]
+        if not piece.is_set or piece.color is None:
+            return
+
+        directions = self._get_directions(piece)
+
+        has_capture = self._dfs_captures(
+                board,
+                row,
+                col,
+                directions,
+                piece,
+                path,
+                captured,
+                result_possible_moves,
+                piece.is_king,
+            )
+
+        if not has_capture:
             result_possible_moves.append(path)
-            
-    def _can_be_captured(self, row: int, col: int, captured: Set[Tuple[int,int]], target_piece: PlayerTileClaim, landing: PlayerTileClaim, attacker_color: PlayerType) -> bool:
+
+    def _dfs_captures(
+        self,
+        board: Board,
+        row: int,
+        col: int,
+        directions: List[Tuple[int, int]],
+        piece: PlayerTileClaim,
+        path: List[Tuple[int, int]],
+        captured: Set[Tuple[int, int]],
+        result_possible_moves: List[Move],
+        is_king: bool
+    ) -> bool:
+        found_capture = False
+
+        for dir_row, dir_col in directions:
+            step_row, step_col = row + dir_row, col + dir_col
+
+            while self.is_inside_board(step_row, step_col):
+                current_tile = board.tiles[step_row][step_col]
+                if not current_tile.is_set:
+                    if not is_king:
+                        break
+                    
+                    step_row += dir_row
+                    step_col += dir_col
+                    continue
+
+                if current_tile.color == piece.color or (step_row, step_col) in captured:
+                    break
+
+                landing_row, landing_col = step_row + dir_row, step_col + dir_col
+
+                while self.is_inside_board(landing_row, landing_col):
+                    landing_tile = board.tiles[landing_row][landing_col]
+                    if landing_tile.is_set:
+                        break
+
+                    self._apply_capture(
+                        board,
+                        row,
+                        col,
+                        landing_row,
+                        landing_col,
+                        step_row,
+                        step_col,
+                        path,
+                        captured,
+                        result_possible_moves
+                    )
+                    found_capture = True
+                    
+                    if not is_king:
+                        break
+                    
+                    landing_row += dir_row
+                    landing_col += dir_col
+
+                break
+
+        return found_capture
+
+    def _apply_capture(
+        self,
+        board: Board,
+        origin_row: int,
+        origin_col: int,
+        landing_row: int,
+        landing_col: int,
+        capture_row: int,
+        capture_col: int,
+        path: List[Tuple[int, int]],
+        captured: Set[Tuple[int, int]],
+        result_possible_moves: List[Move],
+    ):
+        origin_tile = board.tiles[origin_row][origin_col]
+        captured_tile = board.tiles[capture_row][capture_col]
+        landing_original = board.tiles[landing_row][landing_col]
+
+        board.tiles[origin_row][origin_col] = PlayerTileClaim()
+        board.tiles[capture_row][capture_col] = PlayerTileClaim()
+
+        moved_piece = PlayerTileClaim(is_set=True, color=origin_tile.color, is_king=origin_tile.is_king)
+        moved_piece = self._check_promotion(landing_row, moved_piece)
+        board.tiles[landing_row][landing_col] = moved_piece
+
+        new_captured = captured | {(capture_row, capture_col)}
+        self._dfs(board, landing_row, landing_col, path + [(landing_row, landing_col)], new_captured, result_possible_moves)
+
+        board.tiles[landing_row][landing_col] = landing_original
+        board.tiles[capture_row][capture_col] = captured_tile
+        board.tiles[origin_row][origin_col] = origin_tile
+
+    def _can_be_captured(self, row: int, 
+                         col: int, 
+                         captured: Set[Tuple[int,int]], 
+                         target_piece: PlayerTileClaim, 
+                         landing: PlayerTileClaim, 
+                         attacker_color: PlayerType | None) -> bool:
+        
         return (target_piece.is_set
                 and target_piece.color != attacker_color
+                and attacker_color is not None
                 and not landing.is_set 
                 and (row,col) not in captured
         )
@@ -131,14 +227,17 @@ class GameState:
             
         for dir_row, dir_col in directions:
             next_row,next_col = row + dir_row, col + dir_col
-            
-            if not self.is_inside_board(next_row,next_col):
-                continue
-            
-            target_piece = self.board.tiles[next_row][next_col]
-            if not target_piece.is_set:
+
+            while self.is_inside_board(next_row,next_col):
+                target_piece = self.board.tiles[next_row][next_col]
+                if target_piece.is_set:
+                    break
                 possible_moves.append([(row,col),(next_row,next_col)])
-                
+                if not piece.is_king:
+                    break
+                next_row += dir_row
+                next_col += dir_col
+                 
         return possible_moves
 
     def _try_capture(self, row: int, col: int) -> List[Move]:

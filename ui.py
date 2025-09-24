@@ -79,7 +79,9 @@ class CheckersUI:
                 self.selected = (row,col)
                 logger.info(f"human selected piece: {self.selected}")
                 moves = self.state.try_generate_moves()
-                self.legal_destinations = { m[1] for m in moves if len(m) >= 2 and m[0] == self.selected }
+                self.legal_destinations = {
+                    m[-1] for m in moves if len(m) >= 2 and m[0] == self.selected
+                }
                 self.draw_board()
         else:
             legal_moves = self.state.try_generate_moves()
@@ -87,7 +89,8 @@ class CheckersUI:
             for move in legal_moves:
                 if len(move) < 2 or move[0] != self.selected:
                     continue
-                if move[1] == (row, col):
+                
+                if move[-1] == (row, col):
                     logger.info(f"human move chosen: {move}")
                     self.state.apply_move(move)
                     self.human_last_move = move
