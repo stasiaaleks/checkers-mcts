@@ -18,11 +18,12 @@ class CheckersUI:
     def __init__(self, root, state: GameState, human_player=PlayerType.WHITE):
         self.root = root
         self.state = state
+        self.human_player = human_player
+        
         self.canvas = tk.Canvas(root, width=400, height=400)
         self.canvas.pack()
-        self.human_player = human_player
         self.canvas.bind("<Button-1>", self.on_click)
-   
+
         self.draw_board()
         
         if self.state.player != self.human_player:

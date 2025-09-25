@@ -49,11 +49,24 @@ class GameState:
         board[row][col] = PlayerTileClaim()
         
         for (next_row,next_col) in move[1:]:
-            if abs(next_row - row) == 2:
-                cap_row = (row + next_row)//2
-                cap_col = (col + next_col)//2
-                logger.debug(f"capture at {(cap_row,cap_col)} by move {(row,col)} -> {(next_row,next_col)}")
-                board[cap_row][cap_col] = PlayerTileClaim()
+            delta_row = next_row - row
+            delta_col = next_col - col
+          
+            if abs(delta_row) > 1 and abs(delta_col) > 1:
+                step_row = 1 if delta_row > 0 else -1
+                step_col = 1 if delta_col > 0 else -1
+                check_row = row + step_row
+                check_col = col + step_col
+
+                while check_row != next_row:
+                    if board[check_row][check_col].is_set:
+                        logger.debug(f"capture at {(check_row,check_col)} by move {(row,col)} -> {(next_row,next_col)}")
+                        board[check_row][check_col] = PlayerTileClaim()
+                        break
+
+                    check_row += step_row
+                    check_col += step_col
+                    
             row,col = next_row,next_col
             
         piece = self._check_promotion(row, piece)
